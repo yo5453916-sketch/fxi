@@ -1,0 +1,100 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+
+      - name: Generate Android project
+        run: |
+          mkdir -p app/src/main/assets app/src/main/java/com/example/webapp
+          cp lp.html app/src/main/assets/index.html
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositories { google(); mavenCentral() } }
+          rootProject.name = "WebApp"
+          include ':app'
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins { id 'com.android.application' version '8.5.2' apply false }
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins { id 'com.android.application' }
+          android {
+            namespace 'com.example.webapp'
+            compileSdk 34
+            defaultConfig {
+              applicationId "com.example.webapp"
+              minSdk 21
+              targetSdk 34
+              versionCode 1
+              versionName "1.0"
+            }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <uses-permission android:name="android.permission.INTERNET"/>
+            <application android:label="My App" android:usesCleartextTraffic="true"
+              android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+              <activity android:name=".MainActivity" android:exported="true">
+                <intent-filter>
+                  <action android:name="android.intent.action.MAIN"/>
+                  <category android:name="android.intent.category.LAUNCHER"/>
+                </intent-filter>
+              </activity>
+            </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/java/com/example/webapp/MainActivity.java <<'EOF'
+          package com.example.webapp;
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          public class MainActivity extends Activity {
+            WebView w;
+            @Override protected void onCreate(Bundle b) {
+              super.onCreate(b);
+              w = new WebView(this);
+              setContentView(w);
+              WebSettings s = w.getSettings();
+              s.setJavaScriptEnabled(true);
+              s.setDomStorageEnabled(true);
+              w.setWebViewClient(new WebViewClient());
+              w.loadUrl("file:///android_asset/index.html");
+            }
+            @Override public void onBackPressed() {
+              if (w.canGoBack()) w.goBack(); else super.onBackPressed();
+            }
+          }
+          EOF
+
+      - name: Build debug APK
+        run: gradle assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/*.apk
